@@ -3,25 +3,31 @@ import 'package:flutter/material.dart';
 
 // Type definitions (same as before)
 /// Callback function to fetch a page of data.
-typedef FetchPageCallback<T> =
-    Future<List<T>> Function(int pageKey, int pageSize);
+typedef FetchPageCallback<T> = Future<List<T>> Function(
+    int pageKey, int pageSize);
 
 /// Builder function to create a widget for each item in the list.
-typedef ItemBuilder<T> =
-    Widget Function(BuildContext context, T item, int index);
+typedef ItemBuilder<T> = Widget Function(
+    BuildContext context, T item, int index);
 
 /// Builder function for creating an error indicator widget.
-typedef ErrorIndicatorBuilder =
-    Widget Function(
-      // ignore: avoid_positional_boolean_parameters
-      BuildContext context,
-      VoidCallback retryCallback,
-      // ignore: avoid_positional_boolean_parameters
-      bool isInitialError,
-    );
+typedef ErrorIndicatorBuilder = Widget Function(
+  // ignore: avoid_positional_boolean_parameters
+  BuildContext context,
+  VoidCallback retryCallback,
+  // ignore: avoid_positional_boolean_parameters
+  bool isInitialError,
+);
 
 /// Builder function for creating a loading or status indicator widget.
 typedef IndicatorBuilder = Widget Function(BuildContext context);
+
+/// Builder function to wrap the main content sliver (typically a SliverList).
+///
+/// The `child` parameter will be the SliverList (or SliverPadding wrapping it)
+/// generated internally by SliverInfinitePagedList.
+typedef SliverWrapperBuilder = Widget Function(
+    BuildContext context, Widget childSliver);
 
 /// A widget that provides slivers for an infinitely scrolling, paged list.
 ///
@@ -82,6 +88,10 @@ class SliverInfinitePagedList<T> extends StatefulWidget {
   /// PaginationController
   final PaginationController? paginationController;
 
+  /// Optional builder to wrap the main content sliver (SliverList).
+  /// Use this to inject parent widgets like AnimationLimiter.
+  final SliverWrapperBuilder? sliverWrapperBuilder;
+
   ///
   const SliverInfinitePagedList({
     required this.fetchPageCallback,
@@ -98,6 +108,7 @@ class SliverInfinitePagedList<T> extends StatefulWidget {
     this.separatorBuilder,
     this.sliverListPadding,
     this.paginationController,
+    this.sliverWrapperBuilder,
     this.scrollThreshold = 200.0,
   });
 
@@ -284,14 +295,15 @@ class _SliverInfinitePagedListState<T>
         child: Center(child: CircularProgressIndicator.adaptive()),
       );
   Widget _defaultEmptyListIndicator(BuildContext context) => const Center(
-    child: Padding(padding: EdgeInsets.all(16), child: Text('No items found.')),
-  );
+        child: Padding(
+            padding: EdgeInsets.all(16), child: Text('No items found.')),
+      );
   Widget _defaultNoMoreItemsIndicator(BuildContext context) => const Center(
-    child: Padding(
-      padding: EdgeInsets.all(16),
-      child: Text('You have reached the end of the list.'),
-    ),
-  );
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('You have reached the end of the list.'),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -299,8 +311,7 @@ class _SliverInfinitePagedListState<T>
     if (_items.isEmpty && _isLoadingNextPage && !_hasError) {
       return SliverFillRemaining(
         hasScrollBody: false,
-        child:
-            widget.initialLoadingIndicatorBuilder?.call(context) ??
+        child: widget.initialLoadingIndicatorBuilder?.call(context) ??
             _defaultInitialLoadingIndicator(context),
       );
     }
@@ -309,8 +320,7 @@ class _SliverInfinitePagedListState<T>
     if (_items.isEmpty && _hasError) {
       return SliverFillRemaining(
         hasScrollBody: false,
-        child:
-            widget.errorIndicatorBuilder?.call(context, _retry, true) ??
+        child: widget.errorIndicatorBuilder?.call(context, _retry, true) ??
             BeautifulErrorWidget(
               onRetry: _retry,
               isInitialError: true,
@@ -323,8 +333,7 @@ class _SliverInfinitePagedListState<T>
     if (_items.isEmpty && !_hasMoreItems && !_isLoadingNextPage && !_hasError) {
       return SliverFillRemaining(
         hasScrollBody: false,
-        child:
-            widget.emptyListIndicatorBuilder?.call(context) ??
+        child: widget.emptyListIndicatorBuilder?.call(context) ??
             _defaultEmptyListIndicator(context),
       );
     }
@@ -348,7 +357,7 @@ class _SliverInfinitePagedListState<T>
       finalChildCount++;
     }
 
-    final Widget sliverList = SliverList(
+    final Widget coreSliverList = SliverList(
       delegate: SliverChildBuilderDelegate((context, index) {
         if (index < delegateItemCount) {
           // Item or separator
@@ -387,15 +396,19 @@ class _SliverInfinitePagedListState<T>
         return null; // Should not happen if childCount is correct
       }, childCount: finalChildCount),
     );
-
+    var potentiallyWrappedSliver = coreSliverList;
+    if (widget.sliverWrapperBuilder != null) {
+      potentiallyWrappedSliver =
+          widget.sliverWrapperBuilder!(context, coreSliverList);
+    }
     if (widget.sliverListPadding != null && actualItemCount > 0) {
       // Apply padding only if there are items, not to the full-page indicators
       return SliverPadding(
         padding: widget.sliverListPadding!,
-        sliver: sliverList,
+        sliver: potentiallyWrappedSliver,
       );
     }
-    return sliverList;
+    return potentiallyWrappedSliver;
   }
 }
 
